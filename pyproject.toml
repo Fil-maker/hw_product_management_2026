@@ -1,0 +1,67 @@
+[project]
+name = "hw-product-management-2026"
+version = "0.1.0"
+description = "Homework 1: infrastructure with uv, Ruff, mypy, pre-commit"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+license = { text = "MIT" }
+authors = [{ name = "Filipp Zubarev", email = "zubareff10@gmail.com" }]
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "ruff>=0.11.0",
+    "mypy>=1.15.0",
+    "pre-commit>=4.1.0",
+]
+
+[tool.uv]
+package = true
+
+[tool.ruff]
+line-length = 99
+target-version = "py312"
+src = ["src"]
+exclude = [
+    ".venv",
+    "__pycache__",
+    ".mypy_cache",
+    ".ruff_cache",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "UP",  # pyupgrade
+    "SIM", # flake8-simplify
+    "N",   # pep8-naming
+    "RUF", # ruff-specific
+]
+ignore = [
+    "E501",   # line too long — обрабатывается форматтером
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+ignore_missing_imports = true
+exclude = [
+    "__pycache__",
+    ".venv",
+    ".mypy_cache",
+]
+
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+ignore_errors = true
