@@ -8,3 +8,7 @@
 
 ```bash
 make setup
+
+make lint    # автоисправление линтером
+make format  # автоформатирование
+make type    # только mypy
