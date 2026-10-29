@@ -1,16 +1,23 @@
+# Хуки запускают ruff и mypy из окружения проекта (`uv run`), поэтому их версии
+# всегда совпадают с зафиксированными в pyproject.toml / uv.lock.
 repos:
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.16.10
+  - repo: local
     hooks:
-      - id: ruff
-        args: [--config=pyproject.toml]
-      - id: ruff-format
-        args: [--config=pyproject.toml]
+      - id: ruff-check
+        name: ruff check (lint)
+        entry: uv run ruff check
+        language: system
+        types: [python]
 
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v2.4.0
-    hooks:
+      - id: ruff-format
+        name: ruff format --check (style)
+        entry: uv run ruff format --check
+        language: system
+        types: [python]
+
       - id: mypy
-        args: [--config-file=pyproject.toml]
-        additional_dependencies: []
-        exclude: ^tests/
+        name: mypy (types)
+        entry: uv run mypy src/
+        language: system
+        types: [python]
+        pass_filenames: false

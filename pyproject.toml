@@ -1,18 +1,35 @@
 [project]
 name = "hw-product-management-2026"
 version = "0.1.0"
-description = "Homework 1: infrastructure with uv, Ruff, mypy, pre-commit"
+description = "Reproducible CIFAR-10 data pipeline: raw archive in S3, versioned processed dataset"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 license = { text = "MIT" }
 authors = [{ name = "Filipp Zubarev", email = "zubareff10@gmail.com" }]
-dependencies = []
+dependencies = [
+    "boto3>=1.40.0",
+    "numpy>=2.2.0",
+    "pillow>=11.0.0",
+    "python-dotenv>=1.1.0",
+    "requests>=2.32.0",
+]
+
+[project.scripts]
+cifar-ingest = "hw_product_management_2026.data.ingest:main"
+cifar-download = "hw_product_management_2026.data.download:main"
+cifar-convert = "hw_product_management_2026.data.convert:main"
+cifar-split = "hw_product_management_2026.data.split:main"
+cifar-stats = "hw_product_management_2026.data.stats:main"
+cifar-upload = "hw_product_management_2026.data.upload:main"
 
 [dependency-groups]
 dev = [
-    "ruff>=0.11.0",
-    "mypy>=1.15.0",
+    # Версии ruff и mypy закреплены точно: pre-commit запускает их же через `uv run`.
+    "ruff==0.16.10",
+    "mypy==2.4.0",
     "pre-commit>=4.1.0",
+    "boto3-stubs[s3]>=1.40.0",
+    "types-requests>=2.32.0",
 ]
 
 [tool.uv]
@@ -41,9 +58,6 @@ select = [
     "N",   # pep8-naming
     "RUF", # ruff-specific
 ]
-ignore = [
-    "E501",   # line too long — обрабатывается форматтером
-]
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
@@ -55,13 +69,16 @@ indent-style = "space"
 [tool.mypy]
 python_version = "3.12"
 strict = true
-ignore_missing_imports = true
+mypy_path = "src"
 exclude = [
     "__pycache__",
-    ".venv",
-    ".mypy_cache",
+    "\\.venv",
+    "\\.mypy_cache",
+    "^data/",
 ]
 
+# Послабление только для сторонних библиотек без аннотаций — на собственный код
+# (hw_product_management_2026.*) оно не распространяется.
 [[tool.mypy.overrides]]
-module = ["tests.*"]
-ignore_errors = true
+module = ["botocore.*", "boto3.*"]
+ignore_missing_imports = true
