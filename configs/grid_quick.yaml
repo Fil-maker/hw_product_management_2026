@@ -1,0 +1,10 @@
+# Быстрая проверка на CPU: 6 запусков на 5000 картинках train по 3 эпохи.
+base: configs/simple_cnn.yaml
+run_name: "quick-lr{train.lr}-bs{train.batch_size}"
+fixed:
+  experiment_name: cifar10-simple-cnn-quick
+  data.max_train_samples: 5000
+  train.epochs: 3
+grid:
+  train.lr: [0.0003, 0.001, 0.003]
+  train.batch_size: [64, 128]

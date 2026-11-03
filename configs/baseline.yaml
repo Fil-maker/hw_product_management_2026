@@ -1,0 +1,22 @@
+# Baseline: один линейный слой поверх нормализованных пикселей.
+experiment_name: cifar10-baseline
+run_name: linear-lr0.001-bs256-seed42
+seed: 42
+device: auto              # cuda, если доступна, иначе cpu
+
+data:
+  s3_path: processed/cifar10/v1
+  max_train_samples: null
+  augment: false
+
+model:
+  type: linear
+  params: {}
+
+train:
+  epochs: 20
+  batch_size: 256
+  lr: 0.001
+  optimizer: adam
+  weight_decay: 0.0
+  scheduler: none

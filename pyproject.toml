@@ -1,7 +1,7 @@
 [project]
 name = "hw-product-management-2026"
 version = "0.1.0"
-description = "Reproducible CIFAR-10 data pipeline: raw archive in S3, versioned processed dataset"
+description = "CIFAR-10: versioned data pipeline in S3 and tracked training experiments"
 readme = "README.md"
 requires-python = ">=3.12,<3.13"
 license = { text = "MIT" }
@@ -12,7 +12,16 @@ dependencies = [
     "pillow>=11.0.0",
     "python-dotenv>=1.1.0",
     "requests>=2.32.0",
+    "omegaconf>=2.3.0",
+    "matplotlib>=3.10.0",
+    # Клиент MLflow без серверной части; версия совпадает с образом сервера.
+    "mlflow-skinny==3.17.2",
 ]
+
+# Сборка PyTorch выбирается явно: `cpu` (по умолчанию) или `gpu` (CUDA 13.2).
+[project.optional-dependencies]
+cpu = ["torch==2.15.0", "torchvision==0.29.2"]
+gpu = ["torch==2.15.0", "torchvision==0.29.2"]
 
 [project.scripts]
 cifar-ingest = "hw_product_management_2026.data.ingest:main"
@@ -21,6 +30,8 @@ cifar-convert = "hw_product_management_2026.data.convert:main"
 cifar-split = "hw_product_management_2026.data.split:main"
 cifar-stats = "hw_product_management_2026.data.stats:main"
 cifar-upload = "hw_product_management_2026.data.upload:main"
+cifar-train = "hw_product_management_2026.training.train:main"
+cifar-grid = "hw_product_management_2026.training.grid:main"
 
 [dependency-groups]
 dev = [
@@ -34,6 +45,27 @@ dev = [
 
 [tool.uv]
 package = true
+conflicts = [[{ extra = "cpu" }, { extra = "gpu" }]]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu132"
+url = "https://download.pytorch.org/whl/cu132"
+explicit = true
+
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cpu", extra = "cpu" },
+    { index = "pytorch-cu132", extra = "gpu" },
+]
+torchvision = [
+    { index = "pytorch-cpu", extra = "cpu" },
+    { index = "pytorch-cu132", extra = "gpu" },
+]
 
 [tool.ruff]
 line-length = 99
@@ -80,5 +112,5 @@ exclude = [
 # Послабление только для сторонних библиотек без аннотаций — на собственный код
 # (hw_product_management_2026.*) оно не распространяется.
 [[tool.mypy.overrides]]
-module = ["botocore.*", "boto3.*"]
+module = ["botocore.*", "boto3.*", "omegaconf.*", "mlflow.*", "torchvision.*"]
 ignore_missing_imports = true

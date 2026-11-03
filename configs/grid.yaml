@@ -1,0 +1,13 @@
+# Основная сетка: 3 x 2 x 2 = 12 запусков в эксперименте cifar10-simple-cnn.
+# Для скорости на CPU train ограничен 20 000 картинками и 10 эпохами (~40 минут на всю
+# сетку); полная длина обучения — для выбранной конфигурации (configs/simple_cnn_final.yaml).
+# Совсем быстрая проверка — configs/grid_quick.yaml.
+base: configs/simple_cnn.yaml
+run_name: "cnn-lr{train.lr}-bs{train.batch_size}-aug{data.augment}"
+fixed:
+  data.max_train_samples: 20000
+  train.epochs: 10
+grid:
+  train.lr: [0.0003, 0.001, 0.003]
+  train.batch_size: [64, 256]
+  data.augment: [false, true]

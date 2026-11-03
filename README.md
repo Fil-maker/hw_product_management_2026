@@ -1,6 +1,6 @@
 # hw-product-management-2026
 
-Учебный проект: инфраструктура (ДЗ №1) и воспроизводимый конвейер данных CIFAR-10 поверх S3 (ДЗ №2).
+Учебный проект: инфраструктура (ДЗ №1), воспроизводимый конвейер данных CIFAR-10 поверх S3 (ДЗ №2) и эксперименты с трекингом в MLflow (ДЗ №3).
 
 ## Установка и запуск
 
@@ -9,7 +9,8 @@
 - Linux / macOS (на Windows — WSL 2)
 - [uv](https://docs.astral.sh/uv/) — Python 3.12 он поставит сам
 - `make`
-- Docker с Compose v2 (`docker compose`) — для хранилища S3; в WSL нужна включённая WSL integration в Docker Desktop
+- Docker с Compose v2 (`docker compose`) — для S3, MLflow и обучения; в WSL нужна включённая WSL integration в Docker Desktop
+- для обучения на GPU (необязательно) — видеокарта NVIDIA и NVIDIA Container Toolkit
 
 ### Поднять окружение с нуля
 
@@ -17,7 +18,7 @@
 make setup
 ```
 
-Команда создаёт `.venv` из `uv.lock`, ставит git-хук pre-commit и, если `.env` ещё нет, копирует его из `.env.example`.
+Команда создаёт `.venv` из `uv.lock` (PyTorch — CPU-сборка), ставит git-хук pre-commit и, если `.env` ещё нет, копирует его из `.env.example`.
 
 ### Команды
 
@@ -32,6 +33,11 @@ make setup
 | `make ingest` | загрузить сырой архив CIFAR-10 в S3                                          |
 | `make data`   | собрать обработанный датасет и выложить его в S3 с версией                    |
 | `make s3-down`| остановить хранилище (данные сохраняются в volume)                           |
+| `make infra-up` | собрать образ для обучения, поднять S3, PostgreSQL и MLflow                |
+| `make baseline` | baseline-запуск (линейная модель) в контейнере                             |
+| `make train CONFIG=...` | один запуск по конфигу в контейнере                                |
+| `make experiments CONFIG=...` | серия запусков по конфигу сетки, каждый — в своём контейнере  |
+| `make infra-down` | остановить всё (данные, запуски и модели сохраняются в volumes)          |
 
 На каждом коммите pre-commit запускает ruff и mypy из окружения проекта, поэтому их версии совпадают с `uv.lock`.
 
@@ -140,3 +146,98 @@ s3://datasets/
 - **Почти-дубликаты между train и test.** Около 3% картинок test имеют почти точные копии в train (Barz & Denzler, *Do we train on test data?*, 2020). Это немного завышает оценку на test.
 - **Похожие классы.** automobile и truck, cat и dog путаются чаще остальных.
 - **Сбалансированность.** Классы идеально сбалансированы, в реальных данных так бывает редко.
+
+## Эксперименты
+
+### Инфраструктура
+
+`docker-compose.yml` из ДЗ №2 дополнен трекером экспериментов:
+
+- `postgres` — PostgreSQL `17.6`, метаданные запусков MLflow; данные в volume `postgres-data`, порт наружу не публикуется;
+- `mlflow` — сервер MLflow `3.17.2` (образ `docker/mlflow/Dockerfile`: официальный `ghcr.io/mlflow/mlflow:v3.17.2` плюс `psycopg2-binary` и `boto3`), интерфейс — <http://localhost:5000>, есть `healthcheck`. Артефакты (модели, графики) идут через сервер (`--serve-artifacts`) в отдельный бакет `mlflow` того же RustFS, поэтому контейнерам с обучением ключи от S3 для MLflow не нужны;
+- `s3-init` теперь создаёт оба бакета: с данными (`S3_BUCKET`) и для артефактов (`MLFLOW_BUCKET`);
+- `trainer` — образ для обучения (`Dockerfile`: `python:3.12.12-slim-bookworm`, окружение из `uv.lock` через `uv sync --frozen`). У сервиса профиль `train`, поэтому `docker compose up` его не запускает: каждый запуск обучения выполняется командой `docker compose run --rm trainer ...` в отдельном контейнере в той же docker-сети, что S3 и MLflow. Папка `configs/` монтируется в контейнер, так что конфиги можно менять без пересборки образа. Скачанный датасет и кеш весов torchvision лежат в volumes `train-data` и `torch-cache`.
+
+Пароли и ключи берутся из `.env` (пример — `.env.example`).
+
+### Запуск
+
+```bash
+make setup                                       # окружение и .env
+make infra-up                                    # образ для обучения + S3 + PostgreSQL + MLflow
+make ingest && make data                         # данные из ДЗ №2, если их ещё нет в S3 (v1)
+make baseline                                    # baseline: линейная модель
+make experiments CONFIG=configs/grid.yaml        # сетка: 12 запусков
+make infra-down                                  # остановить всё
+```
+
+На CPU основная сетка занимает несколько часов. Для быстрой проверки есть сокращённая сетка: 6 запусков по 3 эпохи на 5000 картинках train, это несколько минут.
+
+```bash
+make experiments CONFIG=configs/grid_quick.yaml
+```
+
+С видеокартой NVIDIA образ собирается с CUDA-сборкой PyTorch, а контейнеру отдаётся GPU (`docker-compose.gpu.yml`):
+
+```bash
+make infra-up GPU=1
+make experiments GPU=1 CONFIG=configs/grid.yaml
+```
+
+Чтобы провести другой эксперимент, достаточно поменять конфиг, код трогать не нужно. Например, поменяйте `train.lr` в `configs/simple_cnn.yaml` и выполните `make train`, или добавьте значения в `grid:` конфига сетки.
+
+### Конфиги
+
+Конфиг одного запуска (`configs/simple_cnn.yaml`, `configs/baseline.yaml`) содержит всё для запуска: имя эксперимента и запуска, seed, версию данных в S3 (`data.s3_path`), модель (`model.type`: `linear`, `simple_cnn` или `torchvision.<имя>`, например `torchvision.resnet18`) и параметры обучения. Отдельные значения можно переопределить из командной строки: `cifar-train --config configs/simple_cnn.yaml --set train.lr=0.003`.
+
+Конфиг сетки (`configs/grid.yaml`) — это базовый конфиг, шаблон имени запуска и перебираемые параметры:
+
+```yaml
+base: configs/simple_cnn.yaml
+run_name: "cnn-lr{train.lr}-bs{train.batch_size}-aug{data.augment}"
+grid:
+  train.lr: [0.0003, 0.001, 0.003]
+  train.batch_size: [64, 256]
+  data.augment: [false, true]
+```
+
+`cifar-grid` (`src/hw_product_management_2026/training/grid.py`) строит все комбинации через `itertools.product`, до старта проверяет все получившиеся конфиги и запускает каждую комбинацию в своём контейнере. `--dry-run` только печатает команды, `--local` запускает обучение без docker.
+
+### Что делает один запуск
+
+`cifar-train` (`src/hw_product_management_2026/training/train.py`):
+
+1. скачивает версию данных из S3 в `data/datasets/<s3_path>/`, если её там ещё нет (`manifest.json` скачивается последним и сверяются sha256 файлов). При первом чтении картинки сверяются с sha256 из разметки и кешируются в `arrays.npz`;
+2. нормализует изображения по `stats.json` той же версии;
+3. обучает модель на train (кросс-энтропия). После каждой эпохи считает loss, accuracy и macro-F1 на **val**;
+4. хранит чекпоинт эпохи с минимальным val loss, а не последней;
+5. сохраняет лучший чекпоинт в `model.pt`, загружает его обратно в новую модель и только тогда один раз измеряет **test**. Test ни на какой выбор не влияет;
+6. логирует всё в MLflow и выкладывает модель в S3.
+
+Что записывается в MLflow для каждого запуска:
+
+| Что | Где |
+|-----|-----|
+| конфиг целиком | параметры (`train.lr`, `model.params.channels`, …) и артефакт `model/config.yaml` |
+| версия данных, seed, git-коммит | теги `data_version`, `seed`, `git_commit` (`mlflow.source.git.commit`), `git_dirty` |
+| метрики на val по эпохам | `val_loss`, `val_accuracy`, `val_macro_f1` (а также `train_loss`, `train_accuracy`, `lr`, `epoch_time_sec`) |
+| время обучения | `train_time_sec` |
+| эпоха лучшего чекпоинта | `best_epoch`, метрики `best_val_*` |
+| качество лучшей модели на test | `test_loss`, `test_accuracy`, `test_macro_f1` |
+| матрица ошибок на val (лучшая эпоха) | `val_confusion_matrix.png` и `val_confusion_matrix.json` |
+| лучшая модель | `model/model.pt`, `model/metrics.json` |
+
+Лучшая модель вместе с конфигом и метриками выкладывается в бакет с данными:
+
+```
+s3://datasets/models/<experiment_name>/<run_name>/
+    model.pt        # state_dict + описание модели, классы, нормализация
+    config.yaml     # итоговый конфиг запуска
+    metrics.json    # val и test лучшей эпохи, история по эпохам, матрица ошибок
+```
+
+Контейнер не видит `.git`, поэтому коммит передаётся ему из `make` (переменные `GIT_COMMIT` и `GIT_DIRTY`).
+
+### Результаты
+
+<!-- RESULTS -->
