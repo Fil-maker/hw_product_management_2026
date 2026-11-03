@@ -18,13 +18,13 @@ dist/
 .pre-commit/
 
 # Data & artifacts
-data/
+/data/
 *.csv
 *.parquet
 *.pkl
 *.joblib
-models/
-reports/figures/
+/models/
+/reports/figures/
 
 # Notebooks
 .ipynb_checkpoints/
