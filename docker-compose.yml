@@ -23,7 +23,8 @@ services:
       start_period: 5s
     restart: unless-stopped
 
-  # Одноразовый контейнер: дожидается готовности хранилища и создаёт бакет, если его нет.
+  # Одноразовый контейнер: дожидается готовности хранилища и создаёт бакеты
+  # (данные и артефакты MLflow), если их нет.
   s3-init:
     image: amazon/aws-cli:2.38.1
     depends_on:
@@ -33,15 +34,111 @@ services:
       AWS_ACCESS_KEY_ID: ${S3_ACCESS_KEY:?set S3_ACCESS_KEY in .env}
       AWS_SECRET_ACCESS_KEY: ${S3_SECRET_KEY:?set S3_SECRET_KEY in .env}
       AWS_DEFAULT_REGION: us-east-1
-      S3_BUCKET: ${S3_BUCKET:?set S3_BUCKET in .env}
+      BUCKETS: ${S3_BUCKET:?set S3_BUCKET in .env} ${MLFLOW_BUCKET:?set MLFLOW_BUCKET in .env}
     entrypoint: ["/bin/sh", "-c"]
     command:
       - >
-        aws --endpoint-url http://s3:9000 s3api head-bucket --bucket "$$S3_BUCKET" 2>/dev/null
-        && echo "bucket $$S3_BUCKET already exists"
-        || (aws --endpoint-url http://s3:9000 s3api create-bucket --bucket "$$S3_BUCKET"
-        && echo "bucket $$S3_BUCKET created")
+        for bucket in $$BUCKETS; do
+        aws --endpoint-url http://s3:9000 s3api head-bucket --bucket "$$bucket" 2>/dev/null
+        && echo "bucket $$bucket already exists"
+        || (aws --endpoint-url http://s3:9000 s3api create-bucket --bucket "$$bucket"
+        && echo "bucket $$bucket created") || exit 1;
+        done
     restart: "no"
+
+  # Метаданные запусков MLflow. Порт наружу не публикуется: нужен только MLflow.
+  postgres:
+    image: postgres:17.6
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  # Сервер MLflow: официальный образ + драйвер PostgreSQL и boto3 (docker/mlflow/Dockerfile).
+  # Артефакты идут через сервер (--serve-artifacts) в бакет MLFLOW_BUCKET,
+  # поэтому клиентам ключи от S3 для MLflow не нужны.
+  mlflow:
+    build: docker/mlflow
+    image: hw-mlflow:3.17.2
+    depends_on:
+      postgres:
+        condition: service_healthy
+      s3-init:
+        condition: service_completed_successfully
+    environment:
+      MLFLOW_S3_ENDPOINT_URL: http://s3:9000
+      AWS_ACCESS_KEY_ID: ${S3_ACCESS_KEY:?set S3_ACCESS_KEY in .env}
+      AWS_SECRET_ACCESS_KEY: ${S3_SECRET_KEY:?set S3_SECRET_KEY in .env}
+      AWS_DEFAULT_REGION: us-east-1
+      # Локальное S3 не поддерживает новые контрольные суммы boto3 по умолчанию.
+      AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+      AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+      # С 3.5 сервер проверяет заголовок Host: разрешаем обращение по имени сервиса.
+      MLFLOW_SERVER_ALLOWED_HOSTS: mlflow:5000,localhost:*,127.0.0.1:*
+      BACKEND_STORE_URI: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      ARTIFACTS_DESTINATION: s3://${MLFLOW_BUCKET:?set MLFLOW_BUCKET in .env}/
+    command:
+      - /bin/sh
+      - -c
+      - >
+        exec mlflow server --host 0.0.0.0 --port 5000
+        --backend-store-uri "$$BACKEND_STORE_URI"
+        --serve-artifacts --artifacts-destination "$$ARTIFACTS_DESTINATION"
+    ports:
+      - "${MLFLOW_PORT:-5000}:5000"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:5000/health', timeout=3)"
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+    restart: unless-stopped
+
+  # Обучение: один запуск = один контейнер (`docker compose run --rm trainer ...`).
+  # Профиль `train` — чтобы `docker compose up` его не запускал.
+  trainer:
+    profiles: ["train"]
+    build:
+      context: .
+      args:
+        TORCH_VARIANT: ${TORCH_VARIANT:-cpu}
+    image: hw-trainer:${TORCH_VARIANT:-cpu}
+    depends_on:
+      mlflow:
+        condition: service_healthy
+    environment:
+      S3_ENDPOINT_URL: http://s3:9000
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:?set S3_ACCESS_KEY in .env}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:?set S3_SECRET_KEY in .env}
+      S3_BUCKET: ${S3_BUCKET:?set S3_BUCKET in .env}
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      GIT_COMMIT: ${GIT_COMMIT:-unknown}
+      GIT_DIRTY: ${GIT_DIRTY:-unknown}
+      # В контейнере нет git: коммит передаётся через GIT_COMMIT, автоопределение MLflow не нужно.
+      GIT_PYTHON_REFRESH: quiet
+      TORCH_HOME: /cache/torch
+      MPLCONFIGDIR: /tmp/matplotlib
+    volumes:
+      # Конфиги монтируются, чтобы менять эксперименты без пересборки образа.
+      - ./configs:/app/configs:ro
+      - train-data:/app/data
+      - torch-cache:/cache/torch
+    shm_size: 1gb
 
 volumes:
   s3-data:
+  postgres-data:
+  train-data:
+  torch-cache:

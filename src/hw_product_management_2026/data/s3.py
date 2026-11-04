@@ -114,6 +114,34 @@ def download_object(client: S3Client, bucket: str, key: str, path: Path) -> None
     tmp.replace(path)
 
 
+def list_keys(client: S3Client, bucket: str, prefix: str) -> list[str]:
+    paginator = client.get_paginator("list_objects_v2")
+    return [
+        obj["Key"]
+        for page in paginator.paginate(Bucket=bucket, Prefix=prefix)
+        for obj in page.get("Contents", [])
+    ]
+
+
+def download_files(
+    client: S3Client,
+    bucket: str,
+    items: Iterable[tuple[str, Path]],
+    workers: int,
+) -> int:
+    """Download (key, local path) pairs in parallel. Returns the number of downloaded files."""
+    items = list(items)
+    done = 0
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = [pool.submit(download_object, client, bucket, key, path) for key, path in items]
+        for future in as_completed(futures):
+            future.result()
+            done += 1
+            if done % 5000 == 0 or done == len(items):
+                log.info("downloaded %d/%d files", done, len(items))
+    return done
+
+
 def upload_files(
     client: S3Client,
     bucket: str,

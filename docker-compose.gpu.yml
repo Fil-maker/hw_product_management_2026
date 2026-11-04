@@ -1,0 +1,11 @@
+# Добавка к docker-compose.yml для обучения на NVIDIA GPU (нужен NVIDIA Container Toolkit).
+# Подключается через `make ... GPU=1`, вместе с ней образ собирается с CUDA-сборкой PyTorch.
+services:
+  trainer:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
