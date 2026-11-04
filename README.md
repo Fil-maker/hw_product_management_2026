@@ -168,6 +168,7 @@ make infra-up                                    # образ для обуче�
 make ingest && make data                         # данные из ДЗ №2, если их ещё нет в S3 (v1)
 make baseline                                    # baseline: линейная модель
 make experiments CONFIG=configs/grid.yaml        # сетка: 12 запусков
+make experiments CONFIG=configs/grid_final.yaml  # выбранная конфигурация на полном train, 20 эпох
 make infra-down                                  # остановить всё
 ```
 
@@ -177,7 +178,7 @@ make infra-down                                  # остановить всё
 make experiments CONFIG=configs/grid_quick.yaml
 ```
 
-С видеокартой NVIDIA образ собирается с CUDA-сборкой PyTorch, а контейнеру отдаётся GPU (`docker-compose.gpu.yml`):
+С видеокартой NVIDIA образ собирается с CUDA-сборкой PyTorch (CUDA 13.2, нужен драйвер с поддержкой CUDA 13), а контейнеру отдаётся GPU (`docker-compose.gpu.yml`). Проверено на RTX 3070 Laptop: 20 эпох на полном train занимают около полутора минут вместо ~13 на CPU. Образ весит ~9.4 ГБ против ~1.9 ГБ у CPU-образа.
 
 ```bash
 make infra-up GPU=1
@@ -240,4 +241,22 @@ s3://datasets/models/<experiment_name>/<run_name>/
 
 ### Результаты
 
-<!-- RESULTS -->
+Все запуски сделаны на версии данных `processed/cifar10/v1` (train 45 000, val 5 000, test 10 000) с seed 42 и чистым деревом git (коммиты `e957b55` и `e9a707b`, код обучения в них одинаковый). Метрики val взяты для лучшей эпохи (минимальный val loss), test измерен один раз для модели этой эпохи.
+
+| Эксперимент | Запуск | Train | Эпох (лучшая) | val loss | val acc | val macro-F1 | test acc | test macro-F1 |
+|---|---|---|---|---|---|---|---|---|
+| `cifar10-baseline` | `linear-lr0.001-bs256-seed42` (линейный слой) | 45 000 | 20 (8) | 1.798 | 0.375 | 0.371 | 0.377 | 0.372 |
+| `cifar10-simple-cnn` | `cnn-lr0.001-bs64-augfalse` — лучший в сетке | 20 000 | 10 (10) | **0.685** | **0.755** | **0.753** | 0.753 | 0.752 |
+| `cifar10-simple-cnn` | `cnn-lr0.003-bs64-augfalse` | 20 000 | 10 (10) | 0.719 | 0.744 | 0.743 | 0.742 | 0.740 |
+| `cifar10-simple-cnn` | `cnn-lr0.001-bs256-augfalse` | 20 000 | 10 (10) | 0.742 | 0.736 | 0.736 | 0.732 | 0.732 |
+| `cifar10-simple-cnn` | `cnn-lr0.0003-bs64-augfalse` | 20 000 | 10 (10) | 0.758 | 0.729 | 0.727 | 0.728 | 0.726 |
+| `cifar10-simple-cnn` | `cnn-lr0.001-bs64-augtrue` | 20 000 | 10 (10) | 0.764 | 0.726 | 0.724 | 0.724 | 0.723 |
+| `cifar10-simple-cnn` | худший: `cnn-lr0.0003-bs256-augtrue` | 20 000 | 10 (10) | 0.978 | 0.655 | 0.653 | 0.650 | 0.649 |
+| `cifar10-simple-cnn-final` | **`final-cnn-lr0.001-bs64-augfalse-ep20` — выбранная** | 45 000 | 20 (18) | **0.510** | **0.830** | **0.829** | **0.817** | **0.817** |
+| `cifar10-simple-cnn-final` | `final-cnn-lr0.001-bs64-augtrue-ep20` | 45 000 | 20 (20) | 0.514 | 0.824 | 0.822 | 0.811 | 0.810 |
+
+Сетка (`configs/grid.yaml`, 12 запусков на CPU, 20 000 картинок train, 10 эпох): `train.lr` ∈ {0.0003, 0.001, 0.003} × `train.batch_size` ∈ {64, 256} × `data.augment` ∈ {false, true}. Остальные параметры — из `configs/simple_cnn.yaml`: 3 блока conv (32-64-128), BatchNorm, dropout 0.3, Adam, weight decay 1e-4, cosine-расписание. Финальные запуски (`configs/grid_final.yaml`) выполнены на GPU.
+
+**Вывод.** Выбрана конфигурация `lr=0.001, batch_size=64` без аугментации: в сетке у неё минимальный val loss (0.685 против 0.719 у следующей). На полном train за 20 эпох она даёт val loss 0.510 и val accuracy 83.0%, а это вдвое лучше baseline (37.5%). Вариант с аугментацией на коротком обучении заметно проигрывал, а на 20 эпохах почти догнал (val loss 0.514) и ещё не вышел на плато: лучшая эпоха у него последняя, train loss намного выше. Значит, при более длинном обучении он, скорее всего, выиграет, но по имеющимся val-метрикам выбран вариант без аугментации. Test в выборе не участвовал. Для выбранной модели test accuracy 81.7% и macro-F1 0.817, что близко к val, то есть на val модель не переобучена.
+
+Модель выбранной конфигурации: `s3://datasets/models/cifar10-simple-cnn-final/final-cnn-lr0.001-bs64-augfalse-ep20/`.

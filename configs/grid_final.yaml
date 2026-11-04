@@ -1,5 +1,5 @@
 # Финальная проверка выбранной по сетке конфигурации (cnn-lr0.001-bs64-augfalse)
-# на полном train (40 000 картинок) и полной длине обучения, 20 эпох.
+# на полном train (45 000 картинок в v1) и полной длине обучения, 20 эпох.
 # Аугментация на 10 эпохах проигрывала, на длинном обучении сравниваем ещё раз — по val.
 base: configs/simple_cnn.yaml
 run_name: "final-cnn-lr{train.lr}-bs{train.batch_size}-aug{data.augment}-ep{train.epochs}"
