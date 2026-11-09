@@ -137,6 +137,65 @@ services:
       - torch-cache:/cache/torch
     shm_size: 1gb
 
+  # Сервинг: `make serve-up`. Профиль `serve` — чтобы инфраструктура из ДЗ №2–3 его не запускала.
+  # GPU контейнеру не отдаётся, поэтому Triton работает на CPU (instance_group: KIND_CPU).
+  triton:
+    profiles: ["serve"]
+    image: nvcr.io/nvidia/tritonserver:26.09-py3
+    command:
+      - tritonserver
+      - --model-repository=/models
+      - --http-port=8000
+      - --grpc-port=8001
+      - --metrics-port=8002
+    ports:
+      - "${TRITON_HTTP_PORT:-8000}:8000"
+      - "${TRITON_GRPC_PORT:-8001}:8001"
+      - "${TRITON_METRICS_PORT:-8002}:8002"
+    volumes:
+      # Собирается `make export`, в git не коммитится.
+      - ./model_repository:/models:ro
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/v2/health/ready"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 20s
+    restart: unless-stopped
+
+  # HTTP-обёртка над Triton: всё, что нужно клиенту, — картинка и POST /predict.
+  api:
+    profiles: ["serve"]
+    build:
+      context: .
+      dockerfile: docker/api/Dockerfile
+    image: hw-api:0.1.0
+    depends_on:
+      triton:
+        condition: service_healthy
+    environment:
+      TRITON_URL: triton:8000
+      TRITON_MODEL_NAME: ${TRITON_MODEL_NAME:-cifar_cnn}
+      TRITON_MODEL_VERSION: ${TRITON_MODEL_VERSION:-1}
+      STATS_PATH: /assets/stats.json
+      MODEL_INFO_PATH: /assets/model_info.json
+    ports:
+      - "${API_PORT:-8080}:8080"
+    volumes:
+      # stats.json и model_info.json из `make export`: те же файлы, что у выбранной модели.
+      - ./serving_assets:/assets:ro
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:8080/health', timeout=3)"
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+    restart: unless-stopped
+
 volumes:
   s3-data:
   postgres-data:

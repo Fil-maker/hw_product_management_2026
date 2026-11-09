@@ -24,6 +24,8 @@ dist/
 *.pkl
 *.joblib
 /models/
+/model_repository/
+/serving_assets/
 /reports/figures/
 
 # Notebooks

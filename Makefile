@@ -1,5 +1,6 @@
 .PHONY: setup check lint format type s3-up s3-down ingest data \
-	data-check-version data-download data-convert data-split data-stats data-upload
+	data-check-version data-download data-convert data-split data-stats data-upload \
+	export serve-up verify load-test serve-down
 
 # Параметры конвейера данных; переопределяются из командной строки:
 #   make data VERSION=v2 SEED=7 VAL_SIZE=10000
@@ -20,8 +21,14 @@ endif
 export GIT_COMMIT := $(shell git rev-parse HEAD 2>/dev/null)
 export GIT_DIRTY := $(shell [ -n "$$(git status --porcelain --untracked-files=no 2>/dev/null)" ] && echo true || echo false)
 
+# Остановка затрагивает и сервисы с профилями, иначе docker-сеть останется занятой.
+COMPOSE_ALL := docker compose --profile train --profile serve
+
+# Какой запуск развёрнут в сервисе; другой конфиг: make export SERVING_CONFIG=...
+SERVING_CONFIG ?= configs/serving.yaml
+
 setup: .env
-	uv sync --extra cpu
+	uv sync --extra cpu --extra export --extra serve
 	uv run pre-commit install
 
 # Локальный .env из примера — только если его ещё нет (существующий не трогаем).
@@ -49,7 +56,7 @@ s3-up: .env
 	docker compose wait s3-init
 
 s3-down:
-	docker compose down
+	$(COMPOSE_ALL) down
 
 # --- Данные --------------------------------------------------------------------
 
@@ -88,7 +95,7 @@ infra-up: .env
 	docker compose wait s3-init
 
 infra-down:
-	docker compose --profile train down
+	$(COMPOSE_ALL) down
 
 # Один запуск в отдельном контейнере: make train CONFIG=configs/simple_cnn.yaml
 train: CONFIG ?= configs/simple_cnn.yaml
@@ -103,3 +110,29 @@ baseline:
 experiments: CONFIG ?= configs/grid.yaml
 experiments:
 	uv run cifar-grid --config $(CONFIG)
+
+# --- Сервинг (Triton + HTTP-обёртка) -------------------------------------------
+
+# Скачать модель из S3, экспортировать в ONNX и собрать model repository.
+export: .env
+	docker compose up -d --wait s3
+	uv run cifar-export --config $(SERVING_CONFIG)
+
+# Поднять Triton, обёртку и S3 (он нужен для make verify). Ждёт, пока все станут healthy.
+serve-up: .env
+	@test -d model_repository && test -f serving_assets/stats.json \
+		|| { echo "model repository is missing: run make export first"; exit 1; }
+	docker compose --profile serve up -d --build --wait s3 triton api
+
+# Прогнать весь test через обёртку и сравнить метрики с обучением.
+# Допуски: make verify VERIFY_ARGS="--accuracy-tolerance 0.001"
+verify:
+	uv run cifar-verify --config $(SERVING_CONFIG) $(VERIFY_ARGS)
+
+# Нагрузочный тест: 1, 2, 5, 10 workers, перезаписывает reports/load_test.md.
+# Параметры: make load-test LOAD_ARGS="--workers 1 5 --requests 2000"
+load-test:
+	uv run cifar-load-test --config $(SERVING_CONFIG) $(LOAD_ARGS)
+
+serve-down:
+	$(COMPOSE_ALL) down

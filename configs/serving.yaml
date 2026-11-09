@@ -1,0 +1,17 @@
+# Какой запуск из ДЗ №3 развёрнут в сервисе и куда складывать результат экспорта.
+# Модель лежит в s3://<S3_BUCKET>/<s3_prefix>/<experiment_name>/<run_name>/.
+experiment_name: cifar10-simple-cnn-final
+run_name: final-cnn-lr0.001-bs64-augfalse-ep20
+s3_prefix: models
+
+# Версия модели в Triton: имя каталога внутри model repository.
+model_version: 1
+# Конфигурация модели в Triton; имя модели (`name`) берётся из этого файла.
+config_pbtxt: configs/triton/config.pbtxt
+
+# Куда экспорт собирает результат; оба каталога в git не коммитятся и монтируются в контейнеры.
+model_repository: model_repository
+assets_dir: serving_assets
+
+# Локальная копия данных для проверки метрик и нагрузочного теста.
+data_dir: data/datasets
