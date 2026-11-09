@@ -9,6 +9,9 @@
 *.egg-info
 data
 models
+model_repository
+serving_assets
+reports
 hw
 .env
 .env.*

@@ -1,0 +1,38 @@
+# Модель из ДЗ №3 на CPU. Размерность батча в dims не пишется: её задаёт max_batch_size.
+# Имена входа и выхода сверяются с ONNX-графом при экспорте (make export).
+name: "cifar_cnn"
+backend: "onnxruntime"
+max_batch_size: 64
+
+input [
+  {
+    name: "input"
+    data_type: TYPE_FP32
+    dims: [ 3, 32, 32 ]
+  }
+]
+output [
+  {
+    name: "logits"
+    data_type: TYPE_FP32
+    dims: [ 10 ]
+  }
+]
+
+dynamic_batching {
+  max_queue_delay_microseconds: 500
+}
+
+# Обоснование числа экземпляров и потоков — в README, раздел «Serving».
+instance_group [
+  {
+    count: 2
+    kind: KIND_CPU
+  }
+]
+
+# По умолчанию каждый экземпляр занимает потоками все ядра, и они мешают друг другу.
+parameters {
+  key: "intra_op_thread_count"
+  value: { string_value: "1" }
+}
