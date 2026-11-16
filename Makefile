@@ -1,6 +1,7 @@
 .PHONY: setup check lint format type s3-up s3-down ingest data \
 	data-check-version data-download data-convert data-split data-stats data-upload \
-	export serve-up verify load-test serve-down
+	export serve-up verify load-test serve-down \
+	demo-examples demo-up demo-down
 
 # Параметры конвейера данных; переопределяются из командной строки:
 #   make data VERSION=v2 SEED=7 VAL_SIZE=10000
@@ -28,7 +29,7 @@ COMPOSE_ALL := docker compose --profile train --profile serve
 SERVING_CONFIG ?= configs/serving.yaml
 
 setup: .env
-	uv sync --extra cpu --extra export --extra serve
+	uv sync --extra cpu --extra export --extra serve --extra demo
 	uv run pre-commit install
 
 # Локальный .env из примера — только если его ещё нет (существующий не трогаем).
@@ -135,4 +136,20 @@ load-test:
 	uv run cifar-load-test --config $(SERVING_CONFIG) $(LOAD_ARGS)
 
 serve-down:
+	$(COMPOSE_ALL) down
+
+# --- Демо (Gradio поверх обёртки) ----------------------------------------------
+
+# Поднять Triton, обёртку и фронтенд (http://localhost:7860), дождаться healthy.
+demo-up: .env
+	@test -d model_repository && test -f serving_assets/model_info.json \
+		|| { echo "model repository is missing: run make export first"; exit 1; }
+	docker compose --profile serve up -d --build --wait triton api demo
+	@echo "demo: http://localhost:$${DEMO_PORT:-7860}"
+
+# Пересобрать примеры demo/examples/ из test (нужны данные на диске, см. make data).
+demo-examples:
+	uv run cifar-demo-examples --config $(SERVING_CONFIG)
+
+demo-down:
 	$(COMPOSE_ALL) down
