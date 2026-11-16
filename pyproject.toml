@@ -26,6 +26,8 @@ gpu = ["torch==2.15.0", "torchvision==0.29.2"]
 export = ["onnx>=1.19.0", "onnxruntime>=1.23.0", "onnxscript>=0.5.0"]
 # HTTP-обёртка над Triton; ставится в свой образ без PyTorch.
 serve = ["fastapi>=0.120.0", "uvicorn>=0.38.0", "python-multipart>=0.0.20", "tritonclient[http]==2.74.0"]
+# Демо-фронтенд в браузере; ходит только в HTTP-обёртку, ставится в свой образ без PyTorch.
+demo = ["gradio>=6.0.0,<7"]
 
 [project.scripts]
 cifar-ingest = "hw_product_management_2026.data.ingest:main"
@@ -39,6 +41,8 @@ cifar-grid = "hw_product_management_2026.training.grid:main"
 cifar-export = "hw_product_management_2026.serving.export:main"
 cifar-verify = "hw_product_management_2026.serving.verify:main"
 cifar-load-test = "hw_product_management_2026.serving.load_test:main"
+cifar-demo = "hw_product_management_2026.demo.app:main"
+cifar-demo-examples = "hw_product_management_2026.demo.examples:main"
 
 [dependency-groups]
 dev = [
@@ -104,6 +108,7 @@ select = [
 # Таблицы и отчёты этих скриптов — на русском: кириллица в них не опечатка.
 "src/hw_product_management_2026/serving/verify.py" = ["RUF001"]
 "src/hw_product_management_2026/serving/load_test.py" = ["RUF001"]
+"src/hw_product_management_2026/demo/app.py" = ["RUF001"]
 
 [tool.ruff.format]
 quote-style = "double"

@@ -196,6 +196,40 @@ services:
       start_period: 5s
     restart: unless-stopped
 
+  # Демо в браузере (http://localhost:7860): `make demo-up`. Ходит только в обёртку,
+  # модель не загружает и с Triton не общается.
+  demo:
+    profiles: ["serve"]
+    build:
+      context: .
+      dockerfile: docker/demo/Dockerfile
+    image: hw-demo:0.1.0
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      # Внутри compose — по имени сервиса: localhost в контейнере демо — это он сам.
+      API_URL: http://api:8080
+      API_TIMEOUT_SECONDS: ${DEMO_API_TIMEOUT_SECONDS:-10}
+      MODEL_INFO_PATH: /assets/model_info.json
+      EXAMPLES_DIR: /app/demo/examples
+    ports:
+      - "${DEMO_PORT:-7860}:7860"
+    volumes:
+      # Названия классов и запуск — из того же model_info.json, что у обёртки.
+      - ./serving_assets:/assets:ro
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://localhost:7860/', timeout=3)"
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+
 volumes:
   s3-data:
   postgres-data:
